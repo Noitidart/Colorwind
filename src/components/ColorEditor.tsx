@@ -34,7 +34,7 @@ const SAMPLE_TEXT = `Paste or type CSS colors to find their nearest Tailwind mat
 const SHARED_TEXT_CLASS =
   "box-border m-0 border p-4 font-mono text-sm leading-6 whitespace-pre-wrap break-words";
 
-const HIDE_DELAY = 150;
+const HIDE_DELAY = 400;
 
 type EnrichedColor = {
   seg: { kind: "color"; text: string; start: number; end: number; value: string };

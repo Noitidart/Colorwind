@@ -15,6 +15,15 @@ type Props = {
 const GAP = 8;
 const EDGE = 8;
 
+type Layout = {
+  tooltipTop: number;
+  tooltipLeft: number;
+  bridgeTop: number;
+  bridgeLeft: number;
+  bridgeWidth: number;
+  bridgeHeight: number;
+};
+
 function Swatch({ color }: { color: string }) {
   return (
     <span
@@ -51,11 +60,12 @@ export function ColorTooltip({
   onPointerLeave,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [layout, setLayout] = useState<Layout | null>(null);
   const interactive = Boolean(onPick);
 
-  // Measure after paint so the tooltip can flip above the anchor when it would
-  // run off the bottom of the viewport and clamp horizontally to stay on screen.
+  // Measure after paint, then open to the right of the span (mirroring to the
+  // left when the right side would overflow). Keeping the tooltip to the side
+  // leaves the CSS lines above and below the color fully visible.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) {
@@ -65,61 +75,107 @@ export function ColorTooltip({
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    const fitsBelow = viewportHeight - anchorRect.bottom >= height + GAP;
-    const fitsAbove = anchorRect.top >= height + GAP;
-    const top = fitsBelow || !fitsAbove ? anchorRect.bottom + GAP : anchorRect.top - height - GAP;
-    const left = Math.max(EDGE, Math.min(anchorRect.left, viewportWidth - width - EDGE));
+    const fitsRight = viewportWidth - anchorRect.right - GAP >= width;
+    const side: "right" | "left" = fitsRight ? "right" : "left";
 
-    setPosition({ top, left });
+    const rawLeft = side === "right" ? anchorRect.right + GAP : anchorRect.left - GAP - width;
+    const tooltipLeft = Math.max(EDGE, Math.min(rawLeft, viewportWidth - width - EDGE));
+    const tooltipTop = Math.max(EDGE, Math.min(anchorRect.top, viewportHeight - height - EDGE));
+
+    // Bridge fills the horizontal gap between the span and the tooltip and spans
+    // their full vertical extent, so the pointer is always over the bridge or
+    // the tooltip while traveling between them and the hide timer cannot fire.
+    const tooltipRight = tooltipLeft + width;
+    const gapLeft = side === "right" ? anchorRect.right : tooltipRight;
+    const gapRight = side === "right" ? tooltipLeft : anchorRect.left;
+    const bridgeLeft = Math.min(gapLeft, gapRight) - 1;
+    const bridgeWidth = Math.max(0, Math.abs(gapRight - gapLeft) + 2);
+    const bridgeTop = Math.min(anchorRect.top, tooltipTop) - 1;
+    const bridgeBottom = Math.max(anchorRect.bottom, tooltipTop + height) + 1;
+
+    setLayout({
+      tooltipTop,
+      tooltipLeft,
+      bridgeTop,
+      bridgeLeft,
+      bridgeWidth,
+      bridgeHeight: bridgeBottom - bridgeTop,
+    });
   }, [anchorRect]);
 
   return createPortal(
-    <div
-      ref={ref}
-      role="tooltip"
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      style={{ top: position?.top, left: position?.left, visibility: position ? "visible" : "hidden" }}
-      className="fixed z-50 w-[28rem] rounded-lg border border-gray-200 bg-gray-50 p-5 shadow-lg"
-    >
-      <p className="mb-4 text-lg font-medium text-slate-800">Top 5 nearest Tailwind colors:</p>
+    <>
+      {/* Invisible bridge; only when the tooltip is interactive (Replace mode),
+          so it never interferes with editing in Highlight mode. */}
+      {interactive && layout && layout.bridgeWidth > 0 ? (
+        <div
+          aria-hidden
+          onPointerEnter={onPointerEnter}
+          onPointerLeave={onPointerLeave}
+          style={{
+            position: "fixed",
+            top: layout.bridgeTop,
+            left: layout.bridgeLeft,
+            width: layout.bridgeWidth,
+            height: layout.bridgeHeight,
+            zIndex: 40,
+          }}
+        />
+      ) : null}
+      <div
+        ref={ref}
+        role="tooltip"
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
+        style={{
+          top: layout?.tooltipTop,
+          left: layout?.tooltipLeft,
+          visibility: layout ? "visible" : "hidden",
+        }}
+        className="fixed z-50 w-[28rem] rounded-lg border border-gray-200 bg-gray-50 p-5 shadow-lg"
+      >
+        <p className="mb-4 text-lg font-medium text-slate-800">Top 5 nearest Tailwind colors:</p>
 
-      {/* The original color the user typed, shown once up top for reference and
-          repeated as the left swatch on every row below for side-by-side compare. */}
-      <div className="mb-4 flex items-center gap-3 rounded bg-white/70 px-3 py-2">
-        <Swatch color={inputColor} />
-        <span className="font-mono text-base text-gray-700">{inputColor}</span>
+        {/* The original color the user typed, shown once up top for reference and
+            repeated as the left swatch on every row below for side-by-side compare. */}
+        <div className="mb-4 flex items-center gap-3 rounded bg-white/70 px-3 py-2">
+          <Swatch color={inputColor} />
+          <span className="font-mono text-base text-gray-700">{inputColor}</span>
+        </div>
+
+        <ol className="space-y-2">
+          {matches.map((match, index) => {
+            const isChosen = match.name === chosenName;
+            const rowClass = `flex w-full items-center gap-4 rounded px-2 py-1.5 text-lg ${
+              isChosen ? "bg-blue-100/70 " : ""
+            }${interactive ? "cursor-pointer hover:bg-gray-200/70" : ""}`;
+            const nameClass = `font-medium text-blue-600 ${isChosen ? "underline" : ""}`;
+            const inner = (
+              <>
+                <span className="w-3 text-gray-400">{index + 1}.</span>
+                <SplitSwatch left={inputColor} right={match.value} />
+                <span className={nameClass}>{match.name}</span>
+                <span className="ml-auto text-gray-500">{match.percent}% match</span>
+              </>
+            );
+            return (
+              <li key={match.name}>
+                {interactive ? (
+                  <button type="button" onClick={() => onPick?.(match.name)} className={rowClass}>
+                    {inner}
+                  </button>
+                ) : (
+                  <div className={rowClass}>{inner}</div>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+        {interactive ? (
+          <p className="mt-3 text-center text-xs text-gray-500">Click a match to use it for this color</p>
+        ) : null}
       </div>
-
-      <ol className="space-y-2">
-        {matches.map((match, index) => {
-          const isChosen = match.name === chosenName;
-          const rowClass = `flex w-full items-center gap-4 rounded px-2 py-1.5 text-lg ${
-            isChosen ? "bg-blue-100/70" : ""
-          }`;;;
-          const nameClass = `font-medium text-blue-600 ${isChosen ? "underline" : ""}`;
-          const inner = (
-            <>
-              <span className="w-3 text-gray-400">{index + 1}.</span>
-              <SplitSwatch left={inputColor} right={match.value} />
-              <span className={nameClass}>{match.name}</span>
-              <span className="ml-auto text-gray-500">{match.percent}% match</span>
-            </>
-          );
-          return (
-            <li key={match.name}>
-              {interactive ? (
-                <button type="button" onClick={() => onPick?.(match.name)} className={rowClass}>
-                  {inner}
-                </button>
-              ) : (
-                <div className={rowClass}>{inner}</div>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </div>,
+    </>,
     document.body,
   );
 }
