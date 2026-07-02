@@ -17,8 +17,6 @@ import {
 } from "../lib/colorReplace";
 import { ColorTooltip } from "./ColorTooltip";
 
-type Mode = "highlight" | "replace";
-
 const SAMPLE_TEXT = `Paste or type CSS colors to find their nearest Tailwind match.
 
 --color-brand: oklch(63.7% 0.237 25.331);
@@ -32,7 +30,7 @@ const SAMPLE_TEXT = `Paste or type CSS colors to find their nearest Tailwind mat
 // highlight layer so the two stack pixel-for-pixel. Monospace keeps wrapping
 // behavior identical between a form control and a block element.
 const SHARED_TEXT_CLASS =
-  "box-border m-0 border p-4 font-mono text-sm leading-6 whitespace-pre-wrap break-words";
+  "box-border m-0 p-4 font-mono text-sm leading-6 whitespace-pre-wrap break-words";
 
 const HIDE_DELAY = 400;
 
@@ -61,7 +59,7 @@ function isVarToken(text: string): boolean {
 
 export function ColorEditor() {
   const [value, setValue] = useState(SAMPLE_TEXT);
-  const [mode, setMode] = useState<Mode>("highlight");
+  const [replaceOn, setReplaceOn] = useState(false);
   const [replacements, setReplacements] = useState<Replacement[]>([]);
   const [active, setActive] = useState<ActiveColor | null>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
@@ -72,15 +70,14 @@ export function ColorEditor() {
   const segments = useMemo(() => tokenizeColors(value), [value]);
 
   const enriched = useMemo<EnrichedColor[]>(() => {
-    const varCount =
-      mode === "replace"
-        ? segments.reduce((count, seg) => count + (seg.kind === "color" && isVarToken(seg.text) ? 1 : 0), 0)
-        : 0;
+    const varCount = replaceOn
+      ? segments.reduce((count, seg) => count + (seg.kind === "color" && isVarToken(seg.text) ? 1 : 0), 0)
+      : 0;
     // Replacements line up with var tokens by order, so only trust them while
     // the counts match. Typing inside replace mode can break that and we then
     // fall back to treating each var token as an exact match rather than risk
     // coloring the wrong span.
-    const replacementsValid = mode === "replace" && varCount === replacements.length;
+    const replacementsValid = replaceOn && varCount === replacements.length;
     let varIndex = 0;
     const result: EnrichedColor[] = [];
 
@@ -89,7 +86,7 @@ export function ColorEditor() {
         continue;
       }
       const isVar = isVarToken(seg.text);
-      if (mode === "replace" && isVar) {
+      if (replaceOn && isVar) {
         const index = varIndex++;
         if (replacementsValid) {
           const replacement = replacements[index];
@@ -122,7 +119,7 @@ export function ColorEditor() {
       });
     }
     return result;
-  }, [segments, mode, replacements]);
+  }, [segments, replaceOn, replacements]);
 
   const matches = useMemo(
     () => (active ? findNearestTailwindColors(active.originalValue, 5) : []),
@@ -160,25 +157,23 @@ export function ColorEditor() {
     hideTimerRef.current = window.setTimeout(() => setActive(null), HIDE_DELAY);
   }
 
-  function switchMode(next: Mode) {
-    if (next === mode) {
-      return;
-    }
+  function toggleReplace() {
     cancelHide();
     setActive(null);
-    if (next === "replace") {
+    if (!replaceOn) {
       snapshotRef.current = value;
       const result = applyReplace(value);
       setValue(result.value);
       setReplacements(result.replacements);
+      setReplaceOn(true);
     } else {
       if (snapshotRef.current != null) {
         setValue(snapshotRef.current);
         snapshotRef.current = null;
       }
       setReplacements([]);
+      setReplaceOn(false);
     }
-    setMode(next);
   }
 
   function handlePick(name: string) {
@@ -260,86 +255,84 @@ export function ColorEditor() {
   return (
     <div className="w-full">
       <div className="mb-3 flex items-center gap-3">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Mode</span>
-        <div className="inline-flex overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600">
-          {(["highlight", "replace"] as const).map((option) => {
-            const selected = mode === option;
-            return (
-              <button
-                key={option}
-                type="button"
-                onClick={() => switchMode(option)}
-                className={`px-3 py-1 text-sm capitalize transition-colors ${
-                  selected
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-transparent dark:text-gray-300 dark:hover:bg-gray-700"
-                }`}
-              >
-                {option}
-              </button>
-            );
-          })}
-        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={replaceOn}
+          aria-label="Replace colors with their nearest Tailwind match"
+          onClick={toggleReplace}
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+            replaceOn ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              replaceOn ? "translate-x-4" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Replace</span>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {mode === "replace"
-            ? "Read-only — select to copy. Switch to Highlight to edit; click a tooltip entry to override a match."
+          {replaceOn
+            ? "Read-only — select to copy. Turn off to edit; click a tooltip entry to override a match."
             : "Hover a color to see its nearest Tailwind matches."}
         </span>
       </div>
 
-      <div className="relative w-full">
-        <div
-          ref={highlightRef}
-          aria-hidden
-          style={{ tabSize: 4 }}
-          className={`absolute inset-0 overflow-auto border-transparent text-gray-900 dark:text-gray-100 ${SHARED_TEXT_CLASS}`}
-        >
-          {segments.map((segment) => {
-            if (segment.kind === "text") {
-              return <span key={segment.start}>{segment.text}</span>;
-            }
-            const item = enrichedByStart.get(segment.start);
-            if (!item) {
-              return <span key={segment.start}>{segment.text}</span>;
-            }
-            return (
-              <span
-                key={segment.start}
-                data-color-start={item.seg.start}
-                data-color-end={item.seg.end}
-                data-color-original={item.originalValue}
-                data-color-chosen={item.chosenName ?? ""}
-                data-color-pickable={item.pickable ? "1" : "0"}
-                data-color-replacement={item.replacementIndex ?? ""}
-                className={`cursor-pointer underline decoration-2 underline-offset-2 ${tierClassName(item.percent)}`}
-              >
-                {item.seg.text}
-              </span>
-            );
-          })}
-          {/* A trailing newline collapses in the highlight layer but still takes a
-              line in the textarea, so pad it to keep the two the same height. */}
-          {value.endsWith("\n") ? " " : null}
-        </div>
+      <div className="overflow-hidden rounded-lg border border-gray-300 dark:border-gray-700">
+        <div className="relative w-full">
+          <div
+            ref={highlightRef}
+            aria-hidden
+            style={{ tabSize: 4 }}
+            className={`absolute inset-0 overflow-auto text-gray-900 dark:text-gray-100 ${SHARED_TEXT_CLASS}`}
+          >
+            {segments.map((segment) => {
+              if (segment.kind === "text") {
+                return <span key={segment.start}>{segment.text}</span>;
+              }
+              const item = enrichedByStart.get(segment.start);
+              if (!item) {
+                return <span key={segment.start}>{segment.text}</span>;
+              }
+              return (
+                <span
+                  key={segment.start}
+                  data-color-start={item.seg.start}
+                  data-color-end={item.seg.end}
+                  data-color-original={item.originalValue}
+                  data-color-chosen={item.chosenName ?? ""}
+                  data-color-pickable={item.pickable ? "1" : "0"}
+                  data-color-replacement={item.replacementIndex ?? ""}
+                  className={`cursor-pointer underline decoration-2 underline-offset-2 ${tierClassName(item.percent)}`}
+                >
+                  {item.seg.text}
+                </span>
+              );
+            })}
+            {/* A trailing newline collapses in the highlight layer but still takes a
+                line in the textarea, so pad it to keep the two the same height. */}
+            {value.endsWith("\n") ? " " : null}
+          </div>
 
-        <textarea
-          value={value}
-          readOnly={mode === "replace"}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setActive(null);
-          }}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={scheduleHide}
-          onScroll={handleScroll}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          style={{ tabSize: 4 }}
-          className={`relative z-10 min-h-80 w-full resize-y rounded-lg border-gray-300 bg-transparent text-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 ${
-            mode === "replace" ? "caret-transparent" : "caret-gray-900 dark:caret-gray-100"
-          } ${SHARED_TEXT_CLASS}`}
-        />
+          <textarea
+            value={value}
+            readOnly={replaceOn}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setActive(null);
+            }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={scheduleHide}
+            onScroll={handleScroll}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            style={{ tabSize: 4 }}
+            className={`relative z-10 min-h-80 w-full resize-y border-0 bg-transparent text-transparent focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${
+              replaceOn ? "caret-transparent" : "caret-gray-900 dark:caret-gray-100"
+            } ${SHARED_TEXT_CLASS}`}
+          />
 
           {active && matches.length > 0 ? (
             <ColorTooltip
@@ -352,6 +345,7 @@ export function ColorEditor() {
               onPointerLeave={scheduleHide}
             />
           ) : null}
+        </div>
       </div>
     </div>
   );
