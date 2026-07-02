@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ColorMatch } from "../lib/colorMatch";
+import { detectNotation, formatColorLike } from "../lib/colorFormat";
 
 type Props = {
   matches: ColorMatch[];
@@ -62,6 +63,15 @@ export function ColorTooltip({
   const ref = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<Layout | null>(null);
   const interactive = Boolean(onPick);
+  const notation = useMemo(() => detectNotation(inputColor), [inputColor]);
+  const formatted = useMemo(
+    () => matches.map((match) => formatColorLike(match.value, notation, match.name)),
+    [matches, notation],
+  );
+  // Size the name and value columns to their longest entry (monospace, so ch is
+  // exact) so the values line up into a clean column instead of ragging per row.
+  const maxNameLen = matches.reduce((max, match) => Math.max(max, match.name.length), 0);
+  const maxValueLen = formatted.reduce((max, value) => Math.max(max, value.length), 0);
 
   // Measure after paint, then open to the right of the span (mirroring to the
   // left when the right side would overflow). Keeping the tooltip to the side
@@ -132,7 +142,7 @@ export function ColorTooltip({
           left: layout?.tooltipLeft,
           visibility: layout ? "visible" : "hidden",
         }}
-        className="fixed z-50 w-[28rem] rounded-lg border border-gray-200 bg-gray-50 p-5 shadow-lg"
+        className="fixed z-50 w-[48rem] rounded-lg border border-gray-200 bg-gray-50 p-5 shadow-lg"
       >
         <p className="mb-4 text-lg font-medium text-slate-800">Top 5 nearest Tailwind colors:</p>
 
@@ -152,9 +162,20 @@ export function ColorTooltip({
             const nameClass = `font-medium text-blue-600 ${isChosen ? "underline" : ""}`;
             const inner = (
               <>
-                <span className="w-3 text-gray-400">{index + 1}.</span>
+                <span className="w-3 shrink-0 text-gray-400">{index + 1}.</span>
                 <SplitSwatch left={inputColor} right={match.value} />
-                <span className={nameClass}>{match.name}</span>
+                <span
+                  className={`whitespace-nowrap font-mono ${nameClass}`}
+                  style={{ minWidth: `${maxNameLen}ch` }}
+                >
+                  {match.name}
+                </span>
+                <span
+                  className="whitespace-nowrap font-mono text-gray-600"
+                  style={{ minWidth: `${maxValueLen}ch` }}
+                >
+                  {formatted[index]}
+                </span>
                 <span className="ml-auto text-gray-500">{match.percent}% match</span>
               </>
             );
