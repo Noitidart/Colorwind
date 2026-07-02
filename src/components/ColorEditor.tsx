@@ -282,7 +282,7 @@ export function ColorEditor() {
         </div>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {mode === "replace"
-            ? "Converted to the nearest Tailwind color. Click a tooltip entry to override."
+            ? "Read-only — select to copy. Switch to Highlight to edit; click a tooltip entry to override a match."
             : "Hover a color to see its nearest Tailwind matches."}
         </span>
       </div>
@@ -324,6 +324,7 @@ export function ColorEditor() {
 
         <textarea
           value={value}
+          readOnly={mode === "replace"}
           onChange={(event) => {
             setValue(event.target.value);
             setActive(null);
@@ -335,7 +336,9 @@ export function ColorEditor() {
           autoCapitalize="off"
           autoCorrect="off"
           style={{ tabSize: 4 }}
-          className={`relative z-10 min-h-80 w-full resize-y rounded-lg border-gray-300 bg-transparent text-transparent caret-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:caret-gray-100 ${SHARED_TEXT_CLASS}`}
+          className={`relative z-10 min-h-80 w-full resize-y rounded-lg border-gray-300 bg-transparent text-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 ${
+            mode === "replace" ? "caret-transparent" : "caret-gray-900 dark:caret-gray-100"
+          } ${SHARED_TEXT_CLASS}`}
         />
 
         {active && matches.length > 0 ? (
