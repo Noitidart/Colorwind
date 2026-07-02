@@ -5,6 +5,7 @@ import type { ColorMatch } from "../lib/colorMatch";
 type Props = {
   matches: ColorMatch[];
   anchorRect: DOMRect;
+  inputColor: string;
   chosenName?: string;
   onPick?: (name: string) => void;
   onPointerEnter?: () => void;
@@ -14,7 +15,41 @@ type Props = {
 const GAP = 8;
 const EDGE = 8;
 
-export function ColorTooltip({ matches, anchorRect, chosenName, onPick, onPointerEnter, onPointerLeave }: Props) {
+function Swatch({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-8 w-8 shrink-0 rounded-sm border border-black/10"
+      style={{ background: color }}
+    />
+  );
+}
+
+// A single bar split in two: the original color on the left, the candidate on
+// the right, so they read as one side-by-side comparison. Solid halves (rather
+// than a gradient string) keep it safe for color values that contain commas.
+// No inner divider so the seam between the two colors is visible as-is.
+function SplitSwatch({ left, right }: { left: string; right: string }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-flex h-8 w-24 shrink-0 overflow-hidden rounded-sm border border-black/10"
+    >
+      <span className="h-full w-1/2" style={{ background: left }} />
+      <span className="h-full w-1/2" style={{ background: right }} />
+    </span>
+  );
+}
+
+export function ColorTooltip({
+  matches,
+  anchorRect,
+  inputColor,
+  chosenName,
+  onPick,
+  onPointerEnter,
+  onPointerLeave,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const interactive = Boolean(onPick);
@@ -45,24 +80,28 @@ export function ColorTooltip({ matches, anchorRect, chosenName, onPick, onPointe
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       style={{ top: position?.top, left: position?.left, visibility: position ? "visible" : "hidden" }}
-      className="fixed z-50 w-72 rounded-lg border border-gray-200 bg-gray-50 p-3 shadow-lg"
+      className="fixed z-50 w-[28rem] rounded-lg border border-gray-200 bg-gray-50 p-5 shadow-lg"
     >
-      <p className="mb-2 text-sm font-medium text-slate-800">Top 5 nearest Tailwind colors:</p>
-      <ol className="space-y-1">
+      <p className="mb-4 text-lg font-medium text-slate-800">Top 5 nearest Tailwind colors:</p>
+
+      {/* The original color the user typed, shown once up top for reference and
+          repeated as the left swatch on every row below for side-by-side compare. */}
+      <div className="mb-4 flex items-center gap-3 rounded bg-white/70 px-3 py-2">
+        <Swatch color={inputColor} />
+        <span className="font-mono text-base text-gray-700">{inputColor}</span>
+      </div>
+
+      <ol className="space-y-2">
         {matches.map((match, index) => {
           const isChosen = match.name === chosenName;
-          const rowClass = `flex w-full items-center gap-2 rounded px-1 py-0.5 text-sm ${
+          const rowClass = `flex w-full items-center gap-4 rounded px-2 py-1.5 text-lg ${
             isChosen ? "bg-blue-100/70" : ""
-          }`;
+          }`;;;
           const nameClass = `font-medium text-blue-600 ${isChosen ? "underline" : ""}`;
           const inner = (
             <>
               <span className="w-3 text-gray-400">{index + 1}.</span>
-              <span
-                className="inline-block h-4 w-4 shrink-0 rounded-sm border border-black/10"
-                style={{ background: match.value }}
-                aria-hidden
-              />
+              <SplitSwatch left={inputColor} right={match.value} />
               <span className={nameClass}>{match.name}</span>
               <span className="ml-auto text-gray-500">{match.percent}% match</span>
             </>

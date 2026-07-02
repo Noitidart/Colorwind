@@ -341,16 +341,17 @@ export function ColorEditor() {
           } ${SHARED_TEXT_CLASS}`}
         />
 
-        {active && matches.length > 0 ? (
-          <ColorTooltip
-            matches={matches}
-            anchorRect={active.rect}
-            chosenName={active.chosenName}
-            onPick={active.pickable ? handlePick : undefined}
-            onPointerEnter={cancelHide}
-            onPointerLeave={scheduleHide}
-          />
-        ) : null}
+          {active && matches.length > 0 ? (
+            <ColorTooltip
+              matches={matches}
+              anchorRect={active.rect}
+              inputColor={active.originalValue}
+              chosenName={active.chosenName}
+              onPick={active.pickable ? handlePick : undefined}
+              onPointerEnter={cancelHide}
+              onPointerLeave={scheduleHide}
+            />
+          ) : null}
       </div>
     </div>
   );
