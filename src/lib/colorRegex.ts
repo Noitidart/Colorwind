@@ -1,10 +1,12 @@
 import { parse } from "culori";
+import { TAILWIND_COLORS } from "./tailwindColors";
 
 export type Segment =
   | { kind: "text"; text: string; start: number; end: number }
   | { kind: "color"; text: string; start: number; end: number; value: string };
 
-// Hex values (3, 4, 6, or 8 digits) and the color functions we support. Longest
+// Hex values (3, 4, 6, or 8 digits), the color functions we support, and
+// Tailwind variable references such as var(--color-red-500). Longest
 // alternatives come first where it matters, and a trailing negative lookahead
 // keeps hex from stopping mid-run. The whole pattern is case-insensitive
 // because CSS color syntax is. Named colors such as "red" are intentionally not
@@ -12,8 +14,12 @@ export type Segment =
 // like var(--color-red), which produced false positives.
 const HEX_SOURCE = "#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})(?![0-9a-f])";
 const FUNCTION_SOURCE = "(?:oklab|oklch|rgba?|hsla?)\\s*\\(\\s*[^)]*?\\)";
+// Capture group 1 holds the shade name (for example "red-500").
+const VAR_SOURCE = "var\\(\\s*--color-([a-z0-9-]+)\\s*\\)";
 
-const COLOR_PATTERN_SOURCE = `(?:${HEX_SOURCE}|${FUNCTION_SOURCE})`;
+const COLOR_BY_NAME = new Map(TAILWIND_COLORS.map((color) => [color.name, color.value]));
+
+const COLOR_PATTERN_SOURCE = `(?:${HEX_SOURCE}|${FUNCTION_SOURCE}|${VAR_SOURCE})`;
 
 export function tokenizeColors(text: string): Segment[] {
   const pattern = new RegExp(COLOR_PATTERN_SOURCE, "gi");
@@ -32,11 +38,23 @@ export function tokenizeColors(text: string): Segment[] {
     // CSS color syntax is case-insensitive, but culori only parses lowercase
     // function names, so validate and store a lowercased copy. The original
     // casing is kept in `text` for display; `value` is what matching consumes.
-    const value = match[0].toLowerCase();
-    if (parse(value)) {
-      raw.push({ kind: "color", text: match[0], start, end, value });
+    // A var(--color-*) match resolves to its Tailwind value via the lookup
+    // table rather than culori, since culori does not understand CSS variables.
+    const varName = match[1];
+    if (varName) {
+      const resolved = COLOR_BY_NAME.get(varName);
+      if (resolved) {
+        raw.push({ kind: "color", text: match[0], start, end, value: resolved });
+      } else {
+        raw.push({ kind: "text", text: match[0], start, end });
+      }
     } else {
-      raw.push({ kind: "text", text: match[0], start, end });
+      const value = match[0].toLowerCase();
+      if (parse(value)) {
+        raw.push({ kind: "color", text: match[0], start, end, value });
+      } else {
+        raw.push({ kind: "text", text: match[0], start, end });
+      }
     }
     cursor = end;
   }

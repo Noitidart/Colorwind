@@ -58,3 +58,16 @@ function distanceToPercent(distance: number): number {
   const percent = Math.round(DELTA_E_FULL_SCALE - distance);
   return Math.max(0, Math.min(DELTA_E_FULL_SCALE, percent));
 }
+
+// Similarity between two arbitrary colors, on the same 0–100 scale as the
+// nearest-match percents. Used to score a manually chosen replacement against
+// the original color the user had before replacing it.
+export function percentBetween(first: string, second: string): number {
+  const a = parse(first);
+  const b = parse(second);
+  if (!a || !b) {
+    return 0;
+  }
+  const deltaE = differenceCiede2000();
+  return distanceToPercent(deltaE(a, b));
+}
