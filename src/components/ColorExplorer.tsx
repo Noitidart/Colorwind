@@ -21,6 +21,9 @@ type Props = {
   // True while the input textarea is focused ("edit mode"), where h/l must type
   // instead of navigating. The hint and empty-state reflect this live.
   inputFocused: boolean;
+  // User-chosen display format override (from f/x/r/s/c/b hotkeys). When null,
+  // the notation is auto-detected from the hovered input color.
+  displayNotation?: Notation | null;
   // The remembered custom value for the active color (from customValues, which
   // nearest picks never clear). Present ⇒ the 6th card renders solid showing it;
   // absent ⇒ dashed.
@@ -76,13 +79,14 @@ export function ColorExplorer({
   chosenName,
   selectedIndex,
   inputFocused,
+  displayNotation,
   customValue,
   customResolved,
   customChosen,
   customInputRef,
   onCommitCustom,
 }: Props) {
-  const notation = useMemo(() => detectNotation(inputColor), [inputColor]);
+  const notation = displayNotation ?? detectNotation(inputColor);
   const formatted = useMemo(
     () => matches.map((match) => formatColorLike(match.value, notation, match.name)),
     [matches, notation],
@@ -107,6 +111,7 @@ export function ColorExplorer({
         </p>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           <Kbd>h</Kbd>/<Kbd>l</Kbd> moves, <Kbd>Enter</Kbd> picks — focusing in the left pane input pauses and enters edit mode.
+          {" "}<Kbd>f</Kbd> cycle format, <Kbd>x</Kbd> hex, <Kbd>r</Kbd> rgb, <Kbd>s</Kbd> hsl, <Kbd>c</Kbd> oklch, <Kbd>b</Kbd> oklab.
         </p>
       </div>
     );
@@ -123,9 +128,9 @@ export function ColorExplorer({
           className="inline-block h-6 w-6 shrink-0 rounded-sm border border-black/10"
           style={{ background: inputColor }}
         />
-        <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{inputColor}</span>
+        <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{formatColorLike(inputColor, notation)}</span>
         <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
-          h/l to move, Enter to pick
+          h/l move, Enter pick, f cycle, x hex, r rgb, s hsl, c oklch, b oklab
         </span>
       </div>
 

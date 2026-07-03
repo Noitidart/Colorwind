@@ -8,6 +8,7 @@ import {
   type UIEvent,
 } from "react";
 import { tokenizeColors } from "../lib/colorRegex";
+import { type Notation } from "../lib/colorFormat";
 import { findNearestTailwindColors } from "../lib/colorMatch";
 import { scoreOverride, tierClassName, type ClassifiedInput, type OverrideChoice, type ResolvedChoice } from "../lib/colorReplace";
 import { TAILWIND_COLORS } from "../lib/tailwindColors";
@@ -76,6 +77,7 @@ export function ColorEditor() {
   const [inputFocused, setInputFocused] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [displayNotation, setDisplayNotation] = useState<Notation | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
@@ -282,6 +284,28 @@ export function ColorEditor() {
       } else if (key === "h") {
         event.preventDefault();
         setSelectedIndex((i) => (i - 1 + len) % len);
+      } else if (key === "f") {
+        event.preventDefault();
+        setDisplayNotation((prev) => {
+          const cycle: Notation[] = ["hex", "rgb", "hsl", "oklch", "oklab"];
+          const idx = prev ? cycle.indexOf(prev) : -1;
+          return cycle[(idx + 1) % cycle.length];
+        });
+      } else if (key === "x") {
+        event.preventDefault();
+        setDisplayNotation("hex");
+      } else if (key === "r") {
+        event.preventDefault();
+        setDisplayNotation("rgb");
+      } else if (key === "s") {
+        event.preventDefault();
+        setDisplayNotation("hsl");
+      } else if (key === "c") {
+        event.preventDefault();
+        setDisplayNotation("oklch");
+      } else if (key === "b") {
+        event.preventDefault();
+        setDisplayNotation("oklab");
       } else if (event.key === "Enter") {
         event.preventDefault();
         // Cursor on the custom card: activate its input instead of committing.
@@ -494,6 +518,7 @@ export function ColorEditor() {
           chosenName={activeChosenName}
           selectedIndex={selectedIndex}
           inputFocused={inputFocused}
+          displayNotation={displayNotation}
           customValue={activeCustomValue}
           customResolved={activeCustomResolved}
           customChosen={customChosen}
