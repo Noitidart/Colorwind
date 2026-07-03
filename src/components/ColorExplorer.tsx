@@ -1,6 +1,16 @@
-import { useMemo, type ReactNode } from "react";
-import { detectNotation, formatColorLike } from "../lib/colorFormat";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { detectNotation, formatColorLike, type Notation } from "../lib/colorFormat";
 import type { ColorMatch } from "../lib/colorMatch";
+import { resolveCustomInput, type ClassifiedInput, type ResolvedChoice } from "../lib/colorReplace";
+import { TAILWIND_COLORS } from "../lib/tailwindColors";
 
 type Props = {
   matches: ColorMatch[];
@@ -10,6 +20,21 @@ type Props = {
   // True while the input textarea is focused ("edit mode"), where h/l must type
   // instead of navigating. The hint and empty-state reflect this live.
   inputFocused: boolean;
+  // The remembered custom value for the active color (from customValues, which
+  // nearest picks never clear). Present ⇒ the 6th card renders solid showing it;
+  // absent ⇒ dashed.
+  customValue?: ClassifiedInput;
+  // That remembered custom value resolved to CSS + match percent, for the card's
+  // swatch, formatted code, and percent line.
+  customResolved?: ResolvedChoice;
+  // True when the custom value is also the active choice (output uses it). The
+  // card turns blue like a chosen nearest card; false leaves it solid-but-gray
+  // while a nearest card is the active pick.
+  customChosen: boolean;
+  // Imperative handle to the custom card's input so ColorEditor's global Enter
+  // (when the cursor lands on the 6th card) can focus it.
+  customInputRef: RefObject<HTMLInputElement | null>;
+  onCommitCustom: (classified: ClassifiedInput) => void;
 };
 
 function Kbd({ children }: { children: ReactNode }) {
@@ -21,7 +46,7 @@ function Kbd({ children }: { children: ReactNode }) {
 }
 
 // A single bar split in two: the original color on the left, the candidate on
-// the right, so they read as one side-by-side comparison. Solid halves (rather
+// the right, so they read as one side by side comparison. Solid halves (rather
 // than a gradient string) keep it safe for color values that contain commas.
 function SplitSwatch({ left, right }: { left: string; right: string }) {
   return (
@@ -32,7 +57,30 @@ function SplitSwatch({ left, right }: { left: string; right: string }) {
   );
 }
 
-export function ColorExplorer({ matches, inputColor, chosenName, selectedIndex, inputFocused }: Props) {
+// Placeholder for the uncommitted custom card — same footprint as SplitSwatch.
+function EmptySwatch() {
+  return (
+    <span
+      aria-hidden
+      className="inline-flex h-8 w-full rounded-sm border border-dashed border-gray-300 dark:border-gray-600"
+    />
+  );
+}
+
+const MAX_SUGGESTIONS = 12;
+
+export function ColorExplorer({
+  matches,
+  inputColor,
+  chosenName,
+  selectedIndex,
+  inputFocused,
+  customValue,
+  customResolved,
+  customChosen,
+  customInputRef,
+  onCommitCustom,
+}: Props) {
   const notation = useMemo(() => detectNotation(inputColor), [inputColor]);
   const formatted = useMemo(
     () => matches.map((match) => formatColorLike(match.value, notation, match.name)),
@@ -96,7 +144,7 @@ export function ColorExplorer({ matches, inputColor, chosenName, selectedIndex, 
               <SplitSwatch left={inputColor} right={match.value} />
               <span
                 className={`font-mono text-sm font-medium ${
-                  isChosen ? "text-blue-600 underline" : "text-slate-800 dark:text-slate-100"
+                  isChosen ? "text-blue-600" : "text-slate-800 dark:text-slate-100"
                 }`}
               >
                 {match.name}
@@ -106,7 +154,234 @@ export function ColorExplorer({ matches, inputColor, chosenName, selectedIndex, 
             </li>
           );
         })}
+        <CustomColorCard
+          inputColor={inputColor}
+          notation={notation}
+          isActive={selectedIndex === matches.length}
+          customValue={customValue}
+          customResolved={customResolved}
+          customChosen={customChosen}
+          inputRef={customInputRef}
+          onCommit={onCommitCustom}
+        />
       </ol>
     </div>
+  );
+}
+
+function CustomColorCard({
+  inputColor,
+  notation,
+  isActive,
+  customValue,
+  customResolved,
+  customChosen,
+  inputRef,
+  onCommit,
+}: {
+  inputColor: string;
+  notation: Notation;
+  isActive: boolean;
+  customValue: ClassifiedInput | undefined;
+  customResolved: ResolvedChoice | undefined;
+  customChosen: boolean;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onCommit: (classified: ClassifiedInput) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  // False until the user actually edits after focusing. The menu is gated on
+  // this so focusing a committed card (which seeds the draft with its value)
+  // doesn't immediately pop a suggestion list for that value.
+  const [dirty, setDirty] = useState(false);
+  const [prevInputColor, setPrevInputColor] = useState(inputColor);
+  const menuRef = useRef<HTMLUListElement>(null);
+
+  // The exact text the user committed — a shade name or a raw value. Retained
+  // verbatim (never reformatted) and re-seeded into the input on focus so the
+  // user edits the existing value rather than retyping it.
+  const verbatim = customValue ? (customValue.kind === "shade" ? customValue.name : customValue.value) : "";
+
+  // Tailwind shade names whose name starts with the typed text. Hex/function
+  // input (e.g. "#ff0000") prefixes no name, so the list is empty and the menu
+  // never appears for it — exactly the requested "only for color names" behavior.
+  const suggestions = useMemo(() => {
+    const query = draft.trim().toLowerCase();
+    if (query === "") {
+      return [];
+    }
+    return TAILWIND_COLORS.filter((color) => color.name.startsWith(query)).slice(0, MAX_SUGGESTIONS);
+  }, [draft]);
+
+  // Reset the half-typed draft the moment the active color changes, so stale
+  // text from one color never leaks into another's picker. Done during render
+  // (tracking the previous prop) rather than in an effect so it lands in the
+  // same commit — the same pattern ColorEditor uses for its cursor reset.
+  if (inputColor !== prevInputColor) {
+    setPrevInputColor(inputColor);
+    setDraft("");
+    setHighlight(0);
+    setDirty(false);
+  }
+
+  // Clamp the highlighted row to the current list so a shrinking suggestion set
+  // (e.g. typing "red-3" after browsing all red-*) can never point past the end.
+  const safeHighlight = suggestions.length === 0 ? 0 : Math.min(highlight, suggestions.length - 1);
+
+  const committed = customValue !== undefined;
+  const displayValue = customResolved?.value ?? inputColor;
+  const percent = customResolved?.percent ?? 0;
+  // The committed color rendered in the original color's notation, the same way
+  // the 5 nearest cards render their code line.
+  const formattedCode = committed
+    ? formatColorLike(displayValue, notation, customValue!.kind === "shade" ? customValue!.name : undefined)
+    : "";
+  // The input shows the verbatim text at rest and the editable draft while
+  // focused (seeded with that verbatim text, so the handoff is invisible).
+  const inputValue = focused ? draft : verbatim;
+
+  // The menu floats with `position: fixed` so it escapes the panel's
+  // overflow-hidden ancestors. Anchor it from the input's box whenever the menu
+  // is (or becomes) visible; writing the position straight to the DOM keeps this
+  // a pure layout sync rather than state. Runs before paint, so no flash.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const input = inputRef.current;
+    if (!menu || !input) {
+      return;
+    }
+    const rect = input.getBoundingClientRect();
+    menu.style.left = `${rect.left}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+  }, [focused, suggestions, inputRef]);
+
+  function commitOverride(classified: ClassifiedInput) {
+    onCommit(classified);
+    setDraft("");
+    setHighlight(0);
+    setDirty(false);
+    inputRef.current?.blur();
+  }
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      if (suggestions.length > 0) {
+        event.preventDefault();
+        setHighlight((i) => (i + 1) % suggestions.length);
+      }
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      if (suggestions.length > 0) {
+        event.preventDefault();
+        setHighlight((i) => (i - 1 + suggestions.length) % suggestions.length);
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      // A highlighted suggestion wins over raw parsing, but only once the user
+      // has actually edited — otherwise focusing a committed card and pressing
+      // Enter would re-resolve its verbatim value needlessly.
+      if (dirty && suggestions.length > 0) {
+        const picked = suggestions[safeHighlight] ?? suggestions[0];
+        commitOverride({ kind: "shade", name: picked.name });
+        return;
+      }
+      const resolved = resolveCustomInput(draft);
+      if (resolved) {
+        commitOverride(resolved);
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setDraft("");
+      setHighlight(0);
+      setDirty(false);
+      inputRef.current?.blur();
+    }
+  }
+
+  // Three visual states: chosen (the custom value is the active pick → blue like
+  // a selected nearest card), committed-but-not-chosen (remembered but a nearest
+  // card is currently active → solid gray), and uncommitted (dashed).
+  const cardClass = `flex w-56 shrink-0 flex-col gap-2 rounded-lg border p-3 ${
+    customChosen
+      ? "border-blue-400 bg-blue-50 dark:border-blue-500/60 dark:bg-blue-500/10 "
+      : committed
+        ? "border-gray-200 dark:border-gray-700 "
+        : "border-dashed border-gray-300 dark:border-gray-600 "
+  }${isActive ? "ring-2 ring-inset ring-blue-500" : ""}`;
+  const inputTextClass = customChosen
+    ? "text-blue-600 dark:text-blue-400"
+    : "text-slate-800 dark:text-slate-100";
+
+  return (
+    <li aria-current={isActive ? true : undefined} className={cardClass}>
+      {committed ? <SplitSwatch left={inputColor} right={displayValue} /> : <EmptySwatch />}
+      <input
+        ref={inputRef}
+        value={inputValue}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setDirty(true);
+          setHighlight(0);
+        }}
+        onFocus={() => {
+          // Seed the draft with the committed value so the user edits what's
+          // there; dirty stays false so the menu doesn't flash open for it.
+          setDraft(verbatim);
+          setDirty(false);
+          setFocused(true);
+        }}
+        onBlur={() => {
+          setFocused(false);
+          setDraft("");
+          setHighlight(0);
+          setDirty(false);
+        }}
+        onKeyDown={handleKeyDown}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        placeholder="red-300 or #ff0000"
+        aria-label="Custom color override"
+        className={`w-full rounded px-1 font-mono text-sm font-medium bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white dark:focus:bg-gray-900 ${inputTextClass}`}
+      />
+      <span className="font-mono text-xs text-gray-600 dark:text-gray-300">
+        {committed ? formattedCode : "\u00A0"}
+      </span>
+      <span className="text-xs text-gray-500 dark:text-gray-400">
+        {committed ? `${percent}% match` : "\u00A0"}
+      </span>
+      {focused && dirty && suggestions.length > 0 && (
+        <ul
+          ref={menuRef}
+          className="fixed z-50 max-h-40 w-56 overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+        >
+          {suggestions.map((suggestion, index) => (
+            <li
+              key={suggestion.name}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                commitOverride({ kind: "shade", name: suggestion.name });
+              }}
+              onMouseEnter={() => setHighlight(index)}
+              className={`flex cursor-pointer items-center gap-2 px-2 py-1 ${
+                index === safeHighlight ? "bg-blue-100 dark:bg-blue-500/20" : ""
+              }`}
+            >
+              <span
+                className="h-3 w-3 shrink-0 rounded-sm border border-black/10"
+                style={{ background: suggestion.value }}
+              />
+              <span className="font-mono text-xs text-gray-800 dark:text-gray-100">{suggestion.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }

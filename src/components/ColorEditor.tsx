@@ -9,7 +9,7 @@ import {
 } from "react";
 import { tokenizeColors } from "../lib/colorRegex";
 import { findNearestTailwindColors } from "../lib/colorMatch";
-import { scoreReplacement, tierClassName } from "../lib/colorReplace";
+import { scoreOverride, tierClassName, type ClassifiedInput, type OverrideChoice, type ResolvedChoice } from "../lib/colorReplace";
 import { TAILWIND_COLORS } from "../lib/tailwindColors";
 import { ColorExplorer } from "./ColorExplorer";
 
@@ -36,7 +36,25 @@ const HOVER_ROW_CLASS = "bg-blue-200/70 dark:bg-blue-500/25";
 // can show a swatch of the color each var(--color-*) will actually produce.
 const COLOR_VALUE_BY_NAME = new Map(TAILWIND_COLORS.map((color) => [color.name, color.value]));
 
-type Choice = { name: string; percent: number };
+// Resolve a classified choice (shade name or raw value) into the CSS value +
+// match percent the panes need to render it. Shades look up their CSS in the
+// Tailwind table; raw values are used as-is. Shared by the active override and
+// the remembered custom value so both render through one path.
+function resolveClassified(originalValue: string, classified: ClassifiedInput): ResolvedChoice {
+  const percent = scoreOverride(originalValue, classified);
+  return classified.kind === "shade"
+    ? {
+        kind: "shade",
+        name: classified.name,
+        // resolveCustomInput only produces a shade for names in this table, so
+        // the lookup is guaranteed to hit; the fallback is just for type safety.
+        value: COLOR_VALUE_BY_NAME.get(classified.name) ?? classified.name,
+        percent,
+      }
+    : { kind: "raw", value: classified.value, percent };
+}
+
+type Choice = ResolvedChoice;
 
 // The color currently driving the explorer/picker. Only set by the mouse
 // hovering a color — the row highlight itself is tracked separately so it can
@@ -47,13 +65,19 @@ type ActiveColor = {
 
 export function ColorEditor() {
   const [value, setValue] = useState(SAMPLE_TEXT);
-  const [overrides, setOverrides] = useState<Map<string, string>>(() => new Map());
+  const [overrides, setOverrides] = useState<Map<string, OverrideChoice>>(() => new Map());
+  // Remembered custom values per original color, separate from the active
+  // override. The 6th card keeps showing its value (solid) from here even after
+  // the user picks a nearest card — selecting nearest only changes the active
+  // choice, it never discards a custom the user typed.
+  const [customValues, setCustomValues] = useState<Map<string, ClassifiedInput>>(() => new Map());
   const [active, setActive] = useState<ActiveColor | null>(null);
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const customInputRef = useRef<HTMLInputElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number | null>(null);
@@ -79,12 +103,12 @@ export function ColorEditor() {
       }
       const override = overrides.get(segment.value);
       if (override) {
-        map.set(segment.value, { name: override, percent: scoreReplacement(segment.value, override) });
+        map.set(segment.value, resolveClassified(segment.value, override));
         continue;
       }
       const top = findNearestTailwindColors(segment.value, 1)[0];
       if (top) {
-        map.set(segment.value, { name: top.name, percent: top.percent });
+        map.set(segment.value, { kind: "shade", name: top.name, value: top.value, percent: top.percent });
       }
     }
     return map;
@@ -97,7 +121,19 @@ export function ColorEditor() {
 
   // The chosen shade for the active color comes from choiceByValue (the live
   // source of truth) so it updates the instant Enter records a pick.
-  const activeChosenName = active ? choiceByValue.get(active.originalValue)?.name : undefined;
+  const activeChoice = active ? choiceByValue.get(active.originalValue) : undefined;
+  const activeChosenName = activeChoice?.kind === "shade" ? activeChoice.name : undefined;
+  // The 6th card is the active/chosen one (blue) only when the current override
+  // came from that card (custom: true); a nearest pick makes the nearest card
+  // chosen instead, leaving the 6th showing its remembered value but not blue.
+  const activeOverride = active ? overrides.get(active.originalValue) : undefined;
+  const customChosen = activeOverride?.custom === true;
+  // The remembered custom value for the active color and its resolved form for
+  // display. Sourced from customValues (which nearest picks never touch), so the
+  // card keeps rendering it until the user re-picks custom or clears it.
+  const activeCustomValue = active ? customValues.get(active.originalValue) : undefined;
+  const activeCustomResolved =
+    active && activeCustomValue ? resolveClassified(active.originalValue, activeCustomValue) : undefined;
 
   // Reset the keyboard cursor onto the currently-chosen match whenever a
   // different color becomes active (so Enter keeps the status quo). Done during
@@ -221,7 +257,17 @@ export function ColorEditor() {
       if (!active) {
         return;
       }
-      const len = matches.length;
+      // The custom-color card's own input handles arrow/Enter/Esc while focused,
+      // so the global h/l/Enter handler must leave its keystrokes alone. Using
+      // event.target (not document.activeElement) is what makes Enter-after-commit
+      // stick: the input's handler commits and blurs synchronously, but by the
+      // time this window listener runs activeElement is already the body — target
+      // still points at the input, so we bail instead of re-focusing it.
+      if (event.target === customInputRef.current) {
+        return;
+      }
+      // The card list is the 5 matches plus the custom card at the end.
+      const len = matches.length + 1;
       // Accept both cases so Caps Lock / Shift don't silently break navigation.
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       // h/l are real characters, so when the input textarea is focused let them
@@ -238,11 +284,16 @@ export function ColorEditor() {
         setSelectedIndex((i) => (i - 1 + len) % len);
       } else if (event.key === "Enter") {
         event.preventDefault();
+        // Cursor on the custom card: activate its input instead of committing.
+        if (selectedIndex >= matches.length) {
+          customInputRef.current?.focus();
+          return;
+        }
         const name = matches[selectedIndex].name;
         const originalValue = active.originalValue;
         setOverrides((prev) => {
           const next = new Map(prev);
-          next.set(originalValue, name);
+          next.set(originalValue, { kind: "shade", name, custom: false });
           return next;
         });
       }
@@ -280,7 +331,8 @@ export function ColorEditor() {
           .map((segment) => {
             if (segment.kind === "text") return segment.text;
             const choice = choiceByValue.get(segment.value);
-            return choice ? `var(--color-${choice.name})` : segment.text;
+            if (!choice) return segment.text;
+            return choice.kind === "shade" ? `var(--color-${choice.name})` : choice.value;
           })
           .join(""),
       )
@@ -403,7 +455,7 @@ export function ColorEditor() {
                         <span className="h-full w-1/2" style={{ background: firstColor.value }} />
                         <span
                           className="h-full w-1/2"
-                          style={{ background: COLOR_VALUE_BY_NAME.get(firstChoice.name) }}
+                          style={{ background: firstChoice.value }}
                         />
                       </span>
                     ) : null}
@@ -417,9 +469,10 @@ export function ColorEditor() {
                       if (!choice) {
                         return <span key={segment.start}>{segment.text}</span>;
                       }
+                      const replaced = choice.kind === "shade" ? `var(--color-${choice.name})` : choice.value;
                       return (
                         <span key={segment.start} className={tierClassName(choice.percent)}>
-                          {`var(--color-${choice.name})`}
+                          {replaced}
                         </span>
                       );
                     })}
@@ -441,6 +494,29 @@ export function ColorEditor() {
           chosenName={activeChosenName}
           selectedIndex={selectedIndex}
           inputFocused={inputFocused}
+          customValue={activeCustomValue}
+          customResolved={activeCustomResolved}
+          customChosen={customChosen}
+          customInputRef={customInputRef}
+          onCommitCustom={(classified) => {
+            if (!active) {
+              return;
+            }
+            const originalValue = active.originalValue;
+            // Committing via the 6th card both activates the custom choice (so
+            // the output uses it and the card turns blue) and remembers it
+            // (so it survives a later nearest pick).
+            setOverrides((prev) => {
+              const next = new Map(prev);
+              next.set(originalValue, { ...classified, custom: true });
+              return next;
+            });
+            setCustomValues((prev) => {
+              const next = new Map(prev);
+              next.set(originalValue, classified);
+              return next;
+            });
+          }}
         />
       </section>
     </div>
