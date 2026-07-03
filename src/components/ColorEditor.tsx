@@ -306,9 +306,7 @@ export function ColorEditor() {
                     return (
                       <span
                         key={segment.start}
-                        className={`underline decoration-2 underline-offset-2 ${tierClassName(
-                          choice?.percent ?? 0,
-                        )}`}
+                        className={tierClassName(choice?.percent ?? 0)}
                       >
                         {segment.text}
                       </span>
