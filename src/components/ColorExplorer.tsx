@@ -9,6 +9,7 @@ import {
 } from "react";
 import { detectNotation, formatColorLike, type Notation } from "../lib/colorFormat";
 import type { ColorMatch } from "../lib/colorMatch";
+import { rgbDistanceBetween, deltaEBetween } from "../lib/colorMatch";
 import { resolveCustomInput, type ClassifiedInput, type ResolvedChoice } from "../lib/colorReplace";
 import { TAILWIND_COLORS } from "../lib/tailwindColors";
 
@@ -149,8 +150,18 @@ export function ColorExplorer({
               >
                 {match.name}
               </span>
-              <span className="font-mono text-xs text-gray-600 dark:text-gray-300">{formatted[index]}</span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{match.percent}% match</span>
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {match.percent}%
+              </span>
+              <span className="text-xs text-gray-600 dark:text-gray-300">
+                <span className="font-semibold">Delta E:</span> {match.distance.toFixed(2)}{" "}
+                <span className="text-gray-400 dark:text-gray-500">&lt;1 imperceptible, &lt;5 barely perceptible</span>
+              </span>
+              <span className="text-xs text-gray-600 dark:text-gray-300">
+                <span className="font-semibold">RGB Dist:</span> {rgbDistanceBetween(inputColor, match.value)}{" "}
+                <span className="text-gray-400 dark:text-gray-500">Lower is better</span>
+              </span>
+              <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{formatted[index]}</span>
             </li>
           );
         })}
@@ -232,6 +243,8 @@ function CustomColorCard({
   const committed = customValue !== undefined;
   const displayValue = customResolved?.value ?? inputColor;
   const percent = customResolved?.percent ?? 0;
+  const deltaE = committed ? deltaEBetween(inputColor, displayValue) : 0;
+  const rgbDist = committed ? rgbDistanceBetween(inputColor, displayValue) : 0;
   // The committed color rendered in the original color's notation, the same way
   // the 5 nearest cards render their code line.
   const formattedCode = committed
@@ -346,15 +359,31 @@ function CustomColorCard({
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
-        placeholder="red-300 or #ff0000"
+        placeholder="Enter custom color"
         aria-label="Custom color override"
         className={`w-full rounded px-1 font-mono text-sm font-medium bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white dark:focus:bg-gray-900 ${inputTextClass}`}
       />
-      <span className="font-mono text-xs text-gray-600 dark:text-gray-300">
-        {committed ? formattedCode : "\u00A0"}
+      <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {committed ? `${percent}%` : "\u00A0"}
       </span>
-      <span className="text-xs text-gray-500 dark:text-gray-400">
-        {committed ? `${percent}% match` : "\u00A0"}
+      <span className="text-xs text-gray-600 dark:text-gray-300">
+        {committed ? (
+          <>
+            <span className="font-semibold">Delta E:</span> {deltaE}{" "}
+            <span className="text-gray-400 dark:text-gray-500">&lt;1 imperceptible, &lt;5 barely perceptible</span>
+          </>
+        ) : "\u00A0"}
+      </span>
+      <span className="text-xs text-gray-600 dark:text-gray-300">
+        {committed ? (
+          <>
+            <span className="font-semibold">RGB Dist:</span> {rgbDist}{" "}
+            <span className="text-gray-400 dark:text-gray-500">Lower is better</span>
+          </>
+        ) : "\u00A0"}
+      </span>
+      <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+        {committed ? formattedCode : "\u00A0"}
       </span>
       {focused && dirty && suggestions.length > 0 && (
         <ul
