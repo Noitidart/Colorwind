@@ -273,6 +273,21 @@ export function ColorEditor() {
     setActive(null);
   }
 
+  function handleCopy() {
+    const replacedText = outputLines
+      .map((entry) =>
+        entry.segments
+          .map((segment) => {
+            if (segment.kind === "text") return segment.text;
+            const choice = choiceByValue.get(segment.value);
+            return choice ? `var(--color-${choice.name})` : segment.text;
+          })
+          .join(""),
+      )
+      .join("\n");
+    navigator.clipboard.writeText(replacedText);
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1">
@@ -346,8 +361,20 @@ export function ColorEditor() {
             the similar (chosen) shade — and the var(--color-*) text is tinted by
             match quality exactly like the input pane. Scrolling syncs to input. */}
         <section className="flex min-w-0 flex-1 flex-col bg-gray-50 dark:bg-gray-900">
-          <header className="shrink-0 border-b border-gray-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            Replaced output
+          <header className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Replaced output
+            </span>
+            <button
+              onClick={handleCopy}
+              className="cursor-pointer rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+              aria-label="Copy replaced output"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+              </svg>
+            </button>
           </header>
           <div
             ref={outputRef}
