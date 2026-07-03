@@ -80,7 +80,7 @@ export function tierClassName(percent: number): string {
 }
 
 // Score a manually chosen shade against the original color, for when the user
-// overrides the top match by clicking a different entry in the tooltip. The
+// overrides the top match by selecting a different entry in the panel. The
 // shade name is resolved to its CSS value first because culori cannot parse a
 // var(--color-*) reference directly.
 export function scoreReplacement(originalValue: string, chosenName: string): number {
