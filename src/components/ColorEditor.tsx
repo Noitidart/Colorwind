@@ -14,7 +14,14 @@ import { scoreOverride, tierClassName, type ClassifiedInput, type OverrideChoice
 import { TAILWIND_COLORS } from "../lib/tailwindColors";
 import { ColorExplorer } from "./ColorExplorer";
 
-const SAMPLE_TEXT = `Paste or type CSS colors to find their nearest Tailwind match.
+const SAMPLE_TEXT = `Colorwind
+
+Use this to:
+1. Migrate a hardcoded-color theme to Tailwind shades
+2. Find the nearest match for a single color code
+3. Match colors inside JSON theme tokens — no CSS syntax needed
+4. See which of your colors are already close to a Tailwind shade
+5. Lock a specific shade or raw value per color (custom card)
 
 --color-brand: oklch(63.7% 0.237 25.331);
 --color-link: #2563eb;

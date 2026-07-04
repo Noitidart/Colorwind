@@ -1,5 +1,6 @@
 {
   "name": "colorwind",
+  "description": "Match any CSS color to its nearest Tailwind shade",
   "private": true,
   "version": "0.0.0",
   "type": "module",
