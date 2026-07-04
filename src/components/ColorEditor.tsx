@@ -254,17 +254,14 @@ export function ColorEditor() {
       const line = findRowAtPoint(root, x, y);
       setHoveredLine(line ?? readCaretLine());
       if (line === null) {
-        if (pinnedValue == null) {
-          setHoverActive(null);
-        }
+        setHoverActive(null);
         return;
       }
-      // While pinned, hover only highlights rows — it never overrides the
-      // bottom panel content.
-      if (pinnedValue == null) {
-        const color = colorOnLine(line);
-        setHoverActive(color ? { originalValue: color } : null);
-      }
+      // hoverActive always tracks the live cursor; it has no visible effect
+      // while pinned (active uses pinnedValue) but stays fresh so the moment
+      // the user unpins, the panel reflects what's truly under the cursor.
+      const color = colorOnLine(line);
+      setHoverActive(color ? { originalValue: color } : null);
     });
   }
 
@@ -277,13 +274,10 @@ export function ColorEditor() {
   }
 
   // Leaving a pane clears the row highlight (or reverts to the caret's line
-  // when the textarea is focused) and clears the mouse-driven explorer —
-  // unless pinned.
+  // when the textarea is focused) and clears the mouse-driven explorer.
   function handleMouseLeave() {
     setHoveredLine(readCaretLine());
-    if (pinnedValue == null) {
-      setHoverActive(null);
-    }
+    setHoverActive(null);
   }
 
   function handleKeyUp() {
@@ -435,16 +429,12 @@ export function ColorEditor() {
 
   function handleScroll(event: UIEvent<HTMLTextAreaElement>) {
     syncScrollTo(event.currentTarget, [highlightRef.current, outputRef.current]);
-    if (pinnedValue == null) {
-      setHoverActive(null);
-    }
+    setHoverActive(null);
   }
 
   function handleOutputScroll(event: UIEvent<HTMLDivElement>) {
     syncScrollTo(event.currentTarget, [inputRef.current, highlightRef.current]);
-    if (pinnedValue == null) {
-      setHoverActive(null);
-    }
+    setHoverActive(null);
   }
 
   function handleCopy() {
