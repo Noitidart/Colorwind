@@ -11,7 +11,7 @@ import { detectNotation, formatColorLike, type Notation } from "../lib/colorForm
 import type { ColorMatch } from "../lib/colorMatch";
 import { rgbDistanceBetween, deltaEBetween } from "../lib/colorMatch";
 import { resolveCustomInput, type ClassifiedInput, type ResolvedChoice } from "../lib/colorReplace";
-import { TAILWIND_COLORS } from "../lib/tailwindColors";
+import type { PaletteBundle } from "../lib/tailwindColors";
 
 type Props = {
   matches: ColorMatch[];
@@ -24,6 +24,7 @@ type Props = {
   // User-chosen display format override (from f/x/r/s/c/b hotkeys). When null,
   // the notation is auto-detected from the hovered input color.
   displayNotation?: Notation | null;
+  palette: PaletteBundle;
   // The remembered custom value for the active color (from customValues, which
   // nearest picks never clear). Present ⇒ the 6th card renders solid showing it;
   // absent ⇒ dashed.
@@ -82,6 +83,7 @@ export function ColorExplorer({
   selectedIndex,
   inputFocused,
   displayNotation,
+  palette,
   customValue,
   customResolved,
   customChosen,
@@ -200,6 +202,7 @@ export function ColorExplorer({
         <CustomColorCard
           inputColor={inputColor}
           notation={notation}
+          palette={palette}
           isActive={selectedIndex === matches.length}
           customValue={customValue}
           customResolved={customResolved}
@@ -215,6 +218,7 @@ export function ColorExplorer({
 function CustomColorCard({
   inputColor,
   notation,
+  palette,
   isActive,
   customValue,
   customResolved,
@@ -224,6 +228,7 @@ function CustomColorCard({
 }: {
   inputColor: string;
   notation: Notation;
+  palette: PaletteBundle;
   isActive: boolean;
   customValue: ClassifiedInput | undefined;
   customResolved: ResolvedChoice | undefined;
@@ -254,8 +259,8 @@ function CustomColorCard({
     if (query === "") {
       return [];
     }
-    return TAILWIND_COLORS.filter((color) => color.name.startsWith(query)).slice(0, MAX_SUGGESTIONS);
-  }, [draft]);
+    return palette.colors.filter((color) => color.name.startsWith(query)).slice(0, MAX_SUGGESTIONS);
+  }, [draft, palette]);
 
   // Reset the half-typed draft the moment the active color changes, so stale
   // text from one color never leaks into another's picker. Done during render
@@ -334,7 +339,7 @@ function CustomColorCard({
         commitOverride({ kind: "shade", name: picked.name });
         return;
       }
-      const resolved = resolveCustomInput(draft);
+      const resolved = resolveCustomInput(draft, palette);
       if (resolved) {
         commitOverride(resolved);
       }

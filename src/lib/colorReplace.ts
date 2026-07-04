@@ -1,7 +1,7 @@
 import { parse } from "culori";
 import { tokenizeColors } from "./colorRegex";
 import { findNearestTailwindColors, percentBetween } from "./colorMatch";
-import { TAILWIND_COLORS } from "./tailwindColors";
+import type { PaletteBundle } from "./tailwindColors";
 
 export type Replacement = {
   originalValue: string;
@@ -36,7 +36,6 @@ export type ResolvedChoice =
   | { kind: "shade"; name: string; value: string; percent: number }
   | { kind: "raw"; value: string; percent: number };
 
-const COLOR_BY_NAME = new Map(TAILWIND_COLORS.map((color) => [color.name, color.value]));
 const VAR_NAME_PATTERN = /var\(\s*--color-([a-z0-9-]+)\s*\)/i;
 
 export function extractVarName(text: string): string | null {
@@ -48,8 +47,8 @@ export function extractVarName(text: string): string | null {
 // Tailwind shade, preserving the original color for each so the replacement can
 // still be scored and re-picked. Tailwind variable references already present
 // in the text are left untouched and recorded as exact matches.
-export function applyReplace(text: string): ReplaceResult {
-  const segments = tokenizeColors(text);
+export function applyReplace(text: string, palette: PaletteBundle): ReplaceResult {
+  const segments = tokenizeColors(text, palette);
   let value = "";
   const replacements: Replacement[] = [];
 
@@ -66,7 +65,7 @@ export function applyReplace(text: string): ReplaceResult {
       continue;
     }
 
-    const top = findNearestTailwindColors(segment.value, 1)[0];
+    const top = findNearestTailwindColors(segment.value, 1, palette)[0];
     if (!top) {
       value += segment.text;
       continue;
@@ -106,8 +105,12 @@ export function tierClassName(percent: number): string {
 // overrides the top match by selecting a different entry in the panel. The
 // shade name is resolved to its CSS value first because culori cannot parse a
 // var(--color-*) reference directly.
-export function scoreReplacement(originalValue: string, chosenName: string): number {
-  const resolved = COLOR_BY_NAME.get(chosenName);
+export function scoreReplacement(
+  originalValue: string,
+  chosenName: string,
+  palette: PaletteBundle,
+): number {
+  const resolved = palette.byName.get(chosenName);
   if (!resolved) {
     return 0;
   }
@@ -118,13 +121,13 @@ export function scoreReplacement(originalValue: string, chosenName: string): num
 // Tailwind shade name (matched case-insensitively) becomes a shade override;
 // anything else culori can parse becomes a raw override emitted as typed.
 // Returns null when the text is neither, so the caller can refuse to commit.
-export function resolveCustomInput(text: string): ClassifiedInput | null {
+export function resolveCustomInput(text: string, palette: PaletteBundle): ClassifiedInput | null {
   const trimmed = text.trim();
   if (trimmed === "") {
     return null;
   }
   const asShade = trimmed.toLowerCase();
-  if (COLOR_BY_NAME.has(asShade)) {
+  if (palette.byName.has(asShade)) {
     return { kind: "shade", name: asShade };
   }
   if (parse(trimmed)) {
@@ -137,8 +140,12 @@ export function resolveCustomInput(text: string): ClassifiedInput | null {
 // scale as the auto picks, so the output pane can tint it by match quality.
 // Takes a ClassifiedInput so it works for both stored overrides and remembered
 // custom values; the origin flag is irrelevant to scoring.
-export function scoreOverride(originalValue: string, override: ClassifiedInput): number {
+export function scoreOverride(
+  originalValue: string,
+  override: ClassifiedInput,
+  palette: PaletteBundle,
+): number {
   return override.kind === "shade"
-    ? scoreReplacement(originalValue, override.name)
+    ? scoreReplacement(originalValue, override.name, palette)
     : percentBetween(originalValue, override.value);
 }

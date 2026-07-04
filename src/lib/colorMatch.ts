@@ -1,17 +1,11 @@
-import { parse, differenceCiede2000, converter, type Color } from "culori";
-import { TAILWIND_COLORS } from "./tailwindColors";
+import { parse, differenceCiede2000, converter } from "culori";
+import type { PaletteBundle } from "./tailwindColors";
 
 export type ColorMatch = {
   name: string;
   value: string;
   distance: number;
   percent: number;
-};
-
-type ReferenceColor = {
-  name: string;
-  value: string;
-  color: Color;
 };
 
 const toRgb = converter("rgb");
@@ -34,20 +28,11 @@ export function rgbDistanceBetween(a: string, b: string): number {
 // match to 100% and an unrelated color toward 0%.
 const DELTA_E_FULL_SCALE = 100;
 
-let referenceColors: ReferenceColor[] | null = null;
-
-function getReferenceColors(): ReferenceColor[] {
-  if (referenceColors) {
-    return referenceColors;
-  }
-  referenceColors = TAILWIND_COLORS.flatMap((entry) => {
-    const color = parse(entry.value);
-    return color ? [{ name: entry.name, value: entry.value, color }] : [];
-  });
-  return referenceColors;
-}
-
-export function findNearestTailwindColors(input: string, limit = 5): ColorMatch[] {
+export function findNearestTailwindColors(
+  input: string,
+  limit: number,
+  palette: PaletteBundle,
+): ColorMatch[] {
   const inputColor = parse(input);
   if (!inputColor) {
     return [];
@@ -55,7 +40,7 @@ export function findNearestTailwindColors(input: string, limit = 5): ColorMatch[
 
   const deltaE = differenceCiede2000();
 
-  return getReferenceColors()
+  return palette.referenceColors
     .map((reference) => ({
       name: reference.name,
       value: reference.value,

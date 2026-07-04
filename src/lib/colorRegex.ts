@@ -1,5 +1,5 @@
 import { parse } from "culori";
-import { TAILWIND_COLORS } from "./tailwindColors";
+import type { PaletteBundle } from "./tailwindColors";
 
 export type Segment =
   | { kind: "text"; text: string; start: number; end: number }
@@ -17,15 +17,14 @@ const FUNCTION_SOURCE = "(?:oklab|oklch|rgba?|hsla?)\\s*\\(\\s*[^)]*?\\)";
 // Capture group 1 holds the shade name (for example "red-500").
 const VAR_SOURCE = "var\\(\\s*--color-([a-z0-9-]+)\\s*\\)";
 
-const COLOR_BY_NAME = new Map(TAILWIND_COLORS.map((color) => [color.name, color.value]));
-
 const COLOR_PATTERN_SOURCE = `(?:${HEX_SOURCE}|${FUNCTION_SOURCE}|${VAR_SOURCE})`;
 
-export function tokenizeColors(text: string): Segment[] {
+export function tokenizeColors(text: string, palette: PaletteBundle): Segment[] {
   const pattern = new RegExp(COLOR_PATTERN_SOURCE, "gi");
   const raw: Segment[] = [];
   let cursor = 0;
   let match: RegExpExecArray | null;
+  const byName = palette.byName;
 
   while ((match = pattern.exec(text)) !== null) {
     const start = match.index;
@@ -42,7 +41,7 @@ export function tokenizeColors(text: string): Segment[] {
     // table rather than culori, since culori does not understand CSS variables.
     const varName = match[1];
     if (varName) {
-      const resolved = COLOR_BY_NAME.get(varName);
+      const resolved = byName.get(varName);
       if (resolved) {
         raw.push({ kind: "color", text: match[0], start, end, value: resolved });
       } else {

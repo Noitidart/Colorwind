@@ -11,7 +11,7 @@ import { tokenizeColors } from "../lib/colorRegex";
 import { type Notation } from "../lib/colorFormat";
 import { findNearestTailwindColors } from "../lib/colorMatch";
 import { scoreOverride, tierClassName, type ClassifiedInput, type OverrideChoice, type ResolvedChoice } from "../lib/colorReplace";
-import { TAILWIND_COLORS } from "../lib/tailwindColors";
+import { getPaletteForVersion, type Version, type PaletteBundle } from "../lib/tailwindColors";
 import { ColorExplorer } from "./ColorExplorer";
 
 const SAMPLE_TEXT = `Colorwind
@@ -43,23 +43,19 @@ const HOVER_ROW_CLASS = "bg-blue-200/70 dark:bg-blue-500/25";
 // The pinned-line highlight — amber to distinguish from the blue hover.
 const PINNED_ROW_CLASS = "bg-amber-200/70 dark:bg-amber-500/25";
 
-// Resolve a chosen Tailwind shade name to its CSS value so the replaced output
-// can show a swatch of the color each var(--color-*) will actually produce.
-const COLOR_VALUE_BY_NAME = new Map(TAILWIND_COLORS.map((color) => [color.name, color.value]));
-
-// Resolve a classified choice (shade name or raw value) into the CSS value +
-// match percent the panes need to render it. Shades look up their CSS in the
-// Tailwind table; raw values are used as-is. Shared by the active override and
-// the remembered custom value so both render through one path.
-function resolveClassified(originalValue: string, classified: ClassifiedInput): ResolvedChoice {
-  const percent = scoreOverride(originalValue, classified);
+function resolveClassified(
+  originalValue: string,
+  classified: ClassifiedInput,
+  palette: PaletteBundle,
+): ResolvedChoice {
+  const percent = scoreOverride(originalValue, classified, palette);
   return classified.kind === "shade"
     ? {
         kind: "shade",
         name: classified.name,
         // resolveCustomInput only produces a shade for names in this table, so
         // the lookup is guaranteed to hit; the fallback is just for type safety.
-        value: COLOR_VALUE_BY_NAME.get(classified.name) ?? classified.name,
+        value: palette.byName.get(classified.name) ?? classified.name,
         percent,
       }
     : { kind: "raw", value: classified.value, percent };
@@ -90,6 +86,8 @@ export function ColorEditor() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [displayNotation, setDisplayNotation] = useState<Notation | null>(null);
+  const [version, setVersion] = useState<Version>("v4");
+  const palette = useMemo(() => getPaletteForVersion(version), [version]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
@@ -102,13 +100,13 @@ export function ColorEditor() {
     ? { originalValue: pinnedValue }
     : hoverActive;
 
-  const segments = useMemo(() => tokenizeColors(value), [value]);
+  const segments = useMemo(() => tokenizeColors(value, palette), [value, palette]);
 
   // Both panes render line-by-line from this so the hovered line can be tinted
   // in lockstep on each side. Each line is tokenized on its own.
   const outputLines = useMemo(
-    () => value.split("\n").map((line) => ({ line, segments: tokenizeColors(line) })),
-    [value],
+    () => value.split("\n").map((line) => ({ line, segments: tokenizeColors(line, palette) })),
+    [value, palette],
   );
 
   // For each distinct input color, its chosen Tailwind shade: an explicit
@@ -123,20 +121,20 @@ export function ColorEditor() {
       }
       const override = overrides.get(segment.value);
       if (override) {
-        map.set(segment.value, resolveClassified(segment.value, override));
+        map.set(segment.value, resolveClassified(segment.value, override, palette));
         continue;
       }
-      const top = findNearestTailwindColors(segment.value, 1)[0];
+      const top = findNearestTailwindColors(segment.value, 1, palette)[0];
       if (top) {
         map.set(segment.value, { kind: "shade", name: top.name, value: top.value, percent: top.percent });
       }
     }
     return map;
-  }, [segments, overrides]);
+  }, [segments, overrides, palette]);
 
   const matches = useMemo(
-    () => (active ? findNearestTailwindColors(active.originalValue, 5) : []),
-    [active],
+    () => (active ? findNearestTailwindColors(active.originalValue, 5, palette) : []),
+    [active, palette],
   );
 
   // The chosen shade for the active color comes from choiceByValue (the live
@@ -153,7 +151,7 @@ export function ColorEditor() {
   // card keeps rendering it until the user re-picks custom or clears it.
   const activeCustomValue = active ? customValues.get(active.originalValue) : undefined;
   const activeCustomResolved =
-    active && activeCustomValue ? resolveClassified(active.originalValue, activeCustomValue) : undefined;
+    active && activeCustomValue ? resolveClassified(active.originalValue, activeCustomValue, palette) : undefined;
 
   // Reset the keyboard cursor onto the currently-chosen match whenever a
   // different color becomes active (so Enter keeps the status quo). Done during
@@ -189,7 +187,7 @@ export function ColorEditor() {
     prevValueRef.current = value;
     const newLines = value.split("\n");
     for (let i = 0; i < newLines.length; i++) {
-      const lineSegments = tokenizeColors(newLines[i]);
+      const lineSegments = tokenizeColors(newLines[i], palette);
       if (lineSegments.some((seg) => seg.kind === "color" && seg.value === pinnedValue)) {
         setPinnedLine(i);
         return;
@@ -198,7 +196,7 @@ export function ColorEditor() {
     // Pinned color no longer exists in the text — unpin.
     setPinnedValue(null);
     setPinnedLine(null);
-  }, [value, pinnedValue]);
+  }, [value, pinnedValue, palette]);
 
   // The first color token on a line, if any — used to light up the explorer when
   // the mouse lands on a line that contains a color.
@@ -543,13 +541,35 @@ export function ColorEditor() {
             the similar (chosen) shade — and the var(--color-*) text is tinted by
             match quality exactly like the input pane. Scrolling syncs to input. */}
         <section className="flex min-w-0 flex-1 flex-col bg-gray-50 dark:bg-gray-900">
-          <header className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-700">
+          <header className="flex h-10 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-700">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Replaced output
             </span>
+            <div className="ml-3 inline-flex rounded-md shadow-sm" role="group">
+              <button
+                onClick={() => setVersion("v3")}
+                className={`cursor-pointer rounded-l-md border px-2 py-0.5 text-xs font-medium ${
+                  version === "v3"
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                v3
+              </button>
+              <button
+                onClick={() => setVersion("v4")}
+                className={`-ml-px cursor-pointer rounded-r-md border px-2 py-0.5 text-xs font-medium ${
+                  version === "v4"
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                v4
+              </button>
+            </div>
             <button
               onClick={handleCopy}
-              className="cursor-pointer rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+              className="ml-auto cursor-pointer rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
               aria-label="Copy replaced output"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -639,6 +659,7 @@ export function ColorEditor() {
           selectedIndex={selectedIndex}
           inputFocused={inputFocused}
           displayNotation={displayNotation}
+          palette={palette}
           customValue={activeCustomValue}
           customResolved={activeCustomResolved}
           customChosen={customChosen}
