@@ -535,7 +535,10 @@ export function ColorEditor() {
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Replaced output
             </span>
-            <div className="ml-3 inline-flex rounded-md shadow-sm" role="group">
+            <span className="ml-3 mr-1.5 text-xs text-gray-500 dark:text-gray-400">
+              Tailwind:
+            </span>
+            <div className="inline-flex rounded-md shadow-sm" role="group">
               <button
                 onClick={() => setVersion("v3")}
                 className={`cursor-pointer rounded-l-md border px-2 py-0.5 text-xs font-medium ${
