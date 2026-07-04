@@ -33,6 +33,9 @@ const SHARED_TEXT_CLASS =
 // against the output pane's gray background, not just white.
 const HOVER_ROW_CLASS = "bg-blue-200/70 dark:bg-blue-500/25";
 
+// The pinned-line highlight — amber to distinguish from the blue hover.
+const PINNED_ROW_CLASS = "bg-amber-200/70 dark:bg-amber-500/25";
+
 // Resolve a chosen Tailwind shade name to its CSS value so the replaced output
 // can show a swatch of the color each var(--color-*) will actually produce.
 const COLOR_VALUE_BY_NAME = new Map(TAILWIND_COLORS.map((color) => [color.name, color.value]));
@@ -72,7 +75,9 @@ export function ColorEditor() {
   // the user picks a nearest card — selecting nearest only changes the active
   // choice, it never discards a custom the user typed.
   const [customValues, setCustomValues] = useState<Map<string, ClassifiedInput>>(() => new Map());
-  const [active, setActive] = useState<ActiveColor | null>(null);
+  const [hoverActive, setHoverActive] = useState<ActiveColor | null>(null);
+  const [pinnedValue, setPinnedValue] = useState<string | null>(null);
+  const [pinnedLine, setPinnedLine] = useState<number | null>(null);
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -83,6 +88,12 @@ export function ColorEditor() {
   const highlightRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number | null>(null);
+
+  // When pinned, the bottom panel stays locked to the pinned color. Hover
+  // highlights rows visually but never overrides the explorer content.
+  const active: ActiveColor | null = pinnedValue != null
+    ? { originalValue: pinnedValue }
+    : hoverActive;
 
   const segments = useMemo(() => tokenizeColors(value), [value]);
 
@@ -155,6 +166,33 @@ export function ColorEditor() {
     };
   }, []);
 
+  // When the text changes, the pinned color may have shifted to a different
+  // line (content added/removed above it) or been deleted entirely. Track it
+  // by scanning the new output for the pinned color value.
+  const prevValueRef = useRef(value);
+  useEffect(() => {
+    if (pinnedValue == null) {
+      prevValueRef.current = value;
+      return;
+    }
+    // If the text didn't change (e.g. a state-only update), skip.
+    if (value === prevValueRef.current) {
+      return;
+    }
+    prevValueRef.current = value;
+    const newLines = value.split("\n");
+    for (let i = 0; i < newLines.length; i++) {
+      const lineSegments = tokenizeColors(newLines[i]);
+      if (lineSegments.some((seg) => seg.kind === "color" && seg.value === pinnedValue)) {
+        setPinnedLine(i);
+        return;
+      }
+    }
+    // Pinned color no longer exists in the text — unpin.
+    setPinnedValue(null);
+    setPinnedLine(null);
+  }, [value, pinnedValue]);
+
   // The first color token on a line, if any — used to light up the explorer when
   // the mouse lands on a line that contains a color.
   function colorOnLine(line: number): string | undefined {
@@ -198,8 +236,9 @@ export function ColorEditor() {
 
   // Resolve a hover to a row, debounced to one check per animation frame. Sets
   // both the row highlight (always) and the active color (only when the row has
-  // a color, which lights up the explorer). Last event wins: a mousemove here
-  // overrides a caret-driven highlight until the caret moves again.
+  // a color and nothing is pinned, which lights up the explorer). Last event
+  // wins: a mousemove here overrides a caret-driven highlight until the caret
+  // moves again.
   function scheduleHover(root: HTMLElement | null, x: number, y: number) {
     if (frameRef.current != null) {
       return;
@@ -211,8 +250,12 @@ export function ColorEditor() {
         return;
       }
       setHoveredLine(line);
-      const color = colorOnLine(line);
-      setActive(color ? { originalValue: color } : null);
+      // While pinned, hover only highlights rows — it never overrides the
+      // bottom panel content.
+      if (pinnedValue == null) {
+        const color = colorOnLine(line);
+        setHoverActive(color ? { originalValue: color } : null);
+      }
     });
   }
 
@@ -225,17 +268,35 @@ export function ColorEditor() {
   }
 
   // Leaving a pane reverts the row highlight to the caret's line (so something
-  // sensible stays lit) and clears the mouse-driven explorer.
+  // sensible stays lit) and clears the mouse-driven explorer — unless pinned.
   function handleMouseLeave() {
     const line = readCaretLine();
     if (line !== null) {
       setHoveredLine(line);
     }
-    setActive(null);
+    if (pinnedValue == null) {
+      setHoverActive(null);
+    }
   }
 
   function handleKeyUp() {
     syncCaretLine();
+  }
+
+  // Clicking a color row pins it (or unpins if already pinned). Only one pin
+  // at a time — clicking a different row switches the pin.
+  function handleRowClick(lineIndex: number) {
+    const color = colorOnLine(lineIndex);
+    if (!color) {
+      return;
+    }
+    if (lineIndex === pinnedLine && pinnedValue != null) {
+      setPinnedValue(null);
+      setPinnedLine(null);
+    } else {
+      setPinnedValue(color);
+      setPinnedLine(lineIndex);
+    }
   }
 
   // Esc exits "edit mode" (the focused input textarea) so the h/l card keys work
@@ -326,6 +387,33 @@ export function ColorEditor() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [active, matches, selectedIndex]);
 
+  // p toggles pin on the currently hovered color. Works independently of the
+  // match navigation keys above — no guard on active or matches.length.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (document.activeElement === inputRef.current) {
+        return;
+      }
+      if (event.target === customInputRef.current) {
+        return;
+      }
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (key !== "p") {
+        return;
+      }
+      event.preventDefault();
+      if (pinnedValue != null) {
+        setPinnedValue(null);
+        setPinnedLine(null);
+      } else if (hoverActive) {
+        setPinnedValue(hoverActive.originalValue);
+        setPinnedLine(hoveredLine);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hoverActive, pinnedValue, hoveredLine]);
+
   // Programmatic scrollTop/scrollLeft assignment does not dispatch a 'scroll'
   // event, so syncing the panes to each other here cannot cause a feedback loop.
   function syncScrollTo(source: HTMLElement, targets: (HTMLElement | null)[]) {
@@ -340,12 +428,16 @@ export function ColorEditor() {
 
   function handleScroll(event: UIEvent<HTMLTextAreaElement>) {
     syncScrollTo(event.currentTarget, [highlightRef.current, outputRef.current]);
-    setActive(null);
+    if (pinnedValue == null) {
+      setHoverActive(null);
+    }
   }
 
   function handleOutputScroll(event: UIEvent<HTMLDivElement>) {
     syncScrollTo(event.currentTarget, [inputRef.current, highlightRef.current]);
-    setActive(null);
+    if (pinnedValue == null) {
+      setHoverActive(null);
+    }
   }
 
   function handleCopy() {
@@ -371,7 +463,7 @@ export function ColorEditor() {
             rendered line-by-line so the hovered/caret line can be tinted; the
             transparent textarea on top owns the pointer and caret. */}
         <section className="flex min-w-0 flex-1 flex-col border-r border-gray-300 dark:border-gray-700">
-          <header className="shrink-0 border-b border-gray-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
+          <header className="flex h-10 shrink-0 items-center border-b border-gray-200 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
             Input
           </header>
           <div className="relative flex-1 overflow-hidden">
@@ -386,7 +478,9 @@ export function ColorEditor() {
                   key={lineIndex}
                   data-line={lineIndex}
                   className={`min-h-6 whitespace-pre-wrap break-words ${
-                    lineIndex === hoveredLine ? HOVER_ROW_CLASS : ""
+                    pinnedLine === lineIndex && pinnedValue != null ? PINNED_ROW_CLASS
+                    : lineIndex === hoveredLine ? HOVER_ROW_CLASS
+                    : ""
                   }`}
                 >
                   {entry.segments.map((segment) => {
@@ -437,7 +531,7 @@ export function ColorEditor() {
             the similar (chosen) shade — and the var(--color-*) text is tinted by
             match quality exactly like the input pane. Scrolling syncs to input. */}
         <section className="flex min-w-0 flex-1 flex-col bg-gray-50 dark:bg-gray-900">
-          <header className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+          <header className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-700">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Replaced output
             </span>
@@ -462,15 +556,28 @@ export function ColorEditor() {
             {outputLines.map((entry, lineIndex) => {
               const firstColor = entry.segments.find((segment) => segment.kind === "color");
               const firstChoice = firstColor ? choiceByValue.get(firstColor.value) : undefined;
+              const isPinned = pinnedLine === lineIndex && pinnedValue != null;
               return (
                 <div
                   key={lineIndex}
                   data-line={lineIndex}
-                  className={`flex items-start gap-2 ${
-                    lineIndex === hoveredLine ? HOVER_ROW_CLASS : ""
+                  onClick={() => handleRowClick(lineIndex)}
+                  className={`flex items-start gap-2 cursor-pointer ${
+                    isPinned ? PINNED_ROW_CLASS
+                    : lineIndex === hoveredLine ? HOVER_ROW_CLASS
+                    : ""
                   }`}
                 >
-                  <span className="inline-flex h-6 w-8 shrink-0 items-center">
+                  <span className="inline-flex h-6 w-10 shrink-0 items-center gap-1">
+                    {isPinned && (
+                      <svg
+                        className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+                        viewBox="0 0 16 16"
+                        fill="currentColor"
+                      >
+                        <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.708l-.8-.8-3.535 3.535c.268.59.408 1.236.408 1.9 0 .94-.28 1.87-.828 2.672l-.172.243a.5.5 0 0 1-.756.05L5.17 9.556l-3.536 3.536a.5.5 0 0 1-.707-.708L4.464 8.85.646 5.032a.5.5 0 0 1 .05-.756l.243-.172A4.5 4.5 0 0 1 3.6 3.28c.664 0 1.31.14 1.9.408L9.035 .152l-.8-.8a.5.5 0 0 1 .146-.354l1.447.724Z" />
+                      </svg>
+                    )}
                     {firstColor && firstChoice ? (
                       <span
                         aria-hidden
@@ -509,8 +616,9 @@ export function ColorEditor() {
       </div>
 
       {/* Explorer (bottom, full width): the matches for whichever color the
-          mouse is over. h/l and Enter drive picking; moving the mouse off a
-          color dismisses it. */}
+          mouse is over (or the pinned color). h/l and Enter drive picking;
+          p or clicking a row pins; moving the mouse off a color dismisses it
+          unless pinned. */}
       <section className="h-72 shrink-0 overflow-hidden border-t border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-950">
         <ColorExplorer
           matches={matches}
@@ -523,6 +631,7 @@ export function ColorEditor() {
           customResolved={activeCustomResolved}
           customChosen={customChosen}
           customInputRef={customInputRef}
+          pinned={pinnedValue != null}
           onCommitCustom={(classified) => {
             if (!active) {
               return;

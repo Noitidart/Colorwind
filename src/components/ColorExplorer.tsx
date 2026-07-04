@@ -38,6 +38,8 @@ type Props = {
   // Imperative handle to the custom card's input so ColorEditor's global Enter
   // (when the cursor lands on the 6th card) can focus it.
   customInputRef: RefObject<HTMLInputElement | null>;
+  // True when a color is pinned in the output pane.
+  pinned: boolean;
   onCommitCustom: (classified: ClassifiedInput) => void;
 };
 
@@ -84,6 +86,7 @@ export function ColorExplorer({
   customResolved,
   customChosen,
   customInputRef,
+  pinned,
   onCommitCustom,
 }: Props) {
   const notation = displayNotation ?? detectNotation(inputColor);
@@ -110,7 +113,7 @@ export function ColorExplorer({
           Hover a color to see its nearest Tailwind matches
         </p>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          <Kbd>h</Kbd>/<Kbd>l</Kbd> moves, <Kbd>Enter</Kbd> picks — focusing in the left pane input pauses and enters edit mode.
+          <Kbd>h</Kbd>/<Kbd>l</Kbd> moves, <Kbd>Enter</Kbd> picks, <Kbd>p</Kbd> pins — focusing in the left pane input pauses and enters edit mode.
           {" "}<Kbd>f</Kbd> cycle format, <Kbd>x</Kbd> hex, <Kbd>r</Kbd> rgb, <Kbd>s</Kbd> hsl, <Kbd>c</Kbd> oklch, <Kbd>b</Kbd> oklab.
         </p>
       </div>
@@ -120,18 +123,42 @@ export function ColorExplorer({
   return (
     <div className="flex h-full flex-col gap-3 p-4">
       <div className="flex items-center gap-3">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-          Top 5 nearest Tailwind matches
-        </h2>
-        <span
-          aria-hidden
-          className="inline-block h-6 w-6 shrink-0 rounded-sm border border-black/10"
-          style={{ background: inputColor }}
-        />
-        <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{formatColorLike(inputColor, notation)}</span>
-        <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
-          h/l move, Enter pick, f cycle, x hex, r rgb, s hsl, c oklch, b oklab
-        </span>
+        {pinned ? (
+          <>
+            <svg
+              className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+            >
+              <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.708l-.8-.8-3.535 3.535c.268.59.408 1.236.408 1.9 0 .94-.28 1.87-.828 2.672l-.172.243a.5.5 0 0 1-.756.05L5.17 9.556l-3.536 3.536a.5.5 0 0 1-.707-.708L4.464 8.85.646 5.032a.5.5 0 0 1 .05-.756l.243-.172A4.5 4.5 0 0 1 3.6 3.28c.664 0 1.31.14 1.9.408L9.035 .152l-.8-.8a.5.5 0 0 1 .146-.354l1.447.724Z" />
+            </svg>
+            <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">Pinned</span>
+            <span
+              aria-hidden
+              className="inline-block h-6 w-6 shrink-0 rounded-sm border border-black/10"
+              style={{ background: inputColor }}
+            />
+            <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{formatColorLike(inputColor, notation)}</span>
+            <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
+              h/l move, Enter pick, p unpin, f cycle, x hex, r rgb, s hsl, c oklch, b oklab
+            </span>
+          </>
+        ) : (
+          <>
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Top 5 nearest Tailwind matches
+            </h2>
+            <span
+              aria-hidden
+              className="inline-block h-6 w-6 shrink-0 rounded-sm border border-black/10"
+              style={{ background: inputColor }}
+            />
+            <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{formatColorLike(inputColor, notation)}</span>
+            <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
+              h/l move, Enter pick, p pin, f cycle, x hex, r rgb, s hsl, c oklch, b oklab
+            </span>
+          </>
+        )}
       </div>
 
       <ol className="flex flex-1 gap-3 overflow-x-auto">
