@@ -188,12 +188,10 @@ export function ColorExplorer({
                 {match.percent}%
               </span>
               <span className="text-xs text-gray-600 dark:text-gray-300">
-                <span className="font-semibold">Delta E:</span> {match.distance.toFixed(2)}{" "}
-                <span className="text-gray-400 dark:text-gray-500">&lt;1 imperceptible, &lt;5 barely perceptible</span>
+                <span className="font-semibold">Delta E:</span> {match.distance.toFixed(2)}
               </span>
               <span className="text-xs text-gray-600 dark:text-gray-300">
-                <span className="font-semibold">RGB Dist:</span> {rgbDistanceBetween(inputColor, match.value)}{" "}
-                <span className="text-gray-400 dark:text-gray-500">Lower is better</span>
+                <span className="font-semibold">RGB Dist:</span> {rgbDistanceBetween(inputColor, match.value)}
               </span>
               <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{formatted[index]}</span>
             </li>
@@ -211,6 +209,9 @@ export function ColorExplorer({
           onCommit={onCommitCustom}
         />
       </ol>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Delta E: &lt;1 imperceptible, &lt;5 barely perceptible · RGB Dist: lower is better
+      </p>
     </div>
   );
 }
@@ -406,16 +407,14 @@ function CustomColorCard({
       <span className="text-xs text-gray-600 dark:text-gray-300">
         {committed ? (
           <>
-            <span className="font-semibold">Delta E:</span> {deltaE}{" "}
-            <span className="text-gray-400 dark:text-gray-500">&lt;1 imperceptible, &lt;5 barely perceptible</span>
+            <span className="font-semibold">Delta E:</span> {deltaE}
           </>
         ) : "\u00A0"}
       </span>
       <span className="text-xs text-gray-600 dark:text-gray-300">
         {committed ? (
           <>
-            <span className="font-semibold">RGB Dist:</span> {rgbDist}{" "}
-            <span className="text-gray-400 dark:text-gray-500">Lower is better</span>
+            <span className="font-semibold">RGB Dist:</span> {rgbDist}
           </>
         ) : "\u00A0"}
       </span>
