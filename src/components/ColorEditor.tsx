@@ -225,9 +225,10 @@ export function ColorEditor() {
 
   // The input textarea's caret line. Drives the row highlight when the user
   // moves the caret with the keyboard (or clicks) instead of the mouse.
+  // Returns null when the textarea isn't focused so nothing gets highlighted.
   function readCaretLine(): number | null {
     const textarea = inputRef.current;
-    if (!textarea) {
+    if (!textarea || !inputFocused) {
       return null;
     }
     const before = textarea.value.slice(0, textarea.selectionStart ?? 0);
@@ -253,10 +254,13 @@ export function ColorEditor() {
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null;
       const line = findRowAtPoint(root, x, y);
+      setHoveredLine(line ?? readCaretLine());
       if (line === null) {
+        if (pinnedValue == null) {
+          setHoverActive(null);
+        }
         return;
       }
-      setHoveredLine(line);
       // While pinned, hover only highlights rows — it never overrides the
       // bottom panel content.
       if (pinnedValue == null) {
@@ -274,13 +278,11 @@ export function ColorEditor() {
     scheduleHover(outputRef.current, event.clientX, event.clientY);
   }
 
-  // Leaving a pane reverts the row highlight to the caret's line (so something
-  // sensible stays lit) and clears the mouse-driven explorer — unless pinned.
+  // Leaving a pane clears the row highlight (or reverts to the caret's line
+  // when the textarea is focused) and clears the mouse-driven explorer —
+  // unless pinned.
   function handleMouseLeave() {
-    const line = readCaretLine();
-    if (line !== null) {
-      setHoveredLine(line);
-    }
+    setHoveredLine(readCaretLine());
     if (pinnedValue == null) {
       setHoverActive(null);
     }
@@ -522,7 +524,10 @@ export function ColorEditor() {
               onClick={syncCaretLine}
               onSelect={syncCaretLine}
               onFocus={() => setInputFocused(true)}
-              onBlur={() => setInputFocused(false)}
+              onBlur={() => {
+                setInputFocused(false);
+                setHoveredLine(null);
+              }}
               onScroll={handleScroll}
               spellCheck={false}
               autoCapitalize="off"
